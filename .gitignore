@@ -1,0 +1,9 @@
+# Ignorar o diretório data
+data/
+
+# Ignorar o arquivo .env
+.env
+
+# Outros arquivos ou diretórios que você não quer versionar
+# .vscode/
+# node_modules/
