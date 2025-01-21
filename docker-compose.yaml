@@ -2,11 +2,11 @@ version: '3.7'
 
 volumes:
   kong_data: {}
+  konga_data: {}
 
 networks:
   kong-net:
     external: false
-
 
 services:
 
@@ -23,11 +23,7 @@ services:
       KONG_PG_PASSWORD: ${KONG_PG_PASSWORD}
     networks:
       - kong-net
-
     restart: on-failure
-    deploy:
-      restart_policy:
-        condition: on-failure
 
   kong-migrations-up:
     image: "kong:2.3.2-alpine"
@@ -42,11 +38,7 @@ services:
       KONG_PG_PASSWORD: ${KONG_PG_PASSWORD}
     networks:
       - kong-net
-
     restart: on-failure
-    deploy:
-      restart_policy:
-        condition: on-failure
 
   kong:
     image: "kong:2.3.2-alpine"
@@ -65,10 +57,8 @@ services:
       KONG_PG_PASSWORD: ${KONG_PG_PASSWORD}
       KONG_PROXY_ACCESS_LOG: /dev/stdout
       KONG_PROXY_ERROR_LOG: /dev/stderr
-    
     networks:
       - kong-net
-
     ports:
       - "${KONG_HTTP_PORT}:8000/tcp"
       - "${KONG_ADMIN_PORT}:8001/tcp"
@@ -80,33 +70,38 @@ services:
       timeout: 10s
       retries: 10
     restart: on-failure
-    deploy:
-      restart_policy:
-        condition: on-failure
-    
+
   db:
     image: postgres:9.5
     environment:
       POSTGRES_DB: ${KONG_PG_DATABASE}
       POSTGRES_USER: ${KONG_PG_USER}
       POSTGRES_PASSWORD: ${KONG_PG_PASSWORD}
-    
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "kong"]
+      test: ["CMD", "pg_isready", "-U", "${KONG_PG_USER}"]
       interval: 30s
       timeout: 30s
       retries: 3
-    restart: on-failure
-    deploy:
-      restart_policy:
-        condition: on-failure
-    stdin_open: true
-    tty: true
     networks:
       - kong-net
-
     volumes:
       - ./data/kong_data:/var/lib/postgresql/data
+
+  konga-db:
+    image: postgres:9.5
+    environment:
+      POSTGRES_DB: ${KONGA_DB_DATABASE}
+      POSTGRES_USER: ${KONGA_DB_USER}
+      POSTGRES_PASSWORD: ${KONGA_DB_PASSWORD}
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "${KONGA_DB_USER}"]
+      interval: 30s
+      timeout: 30s
+      retries: 3
+    networks:
+      - kong-net
+    volumes:
+      - ./data/konga_data:/var/lib/postgresql/data
 
   konga-prepare:
     container_name: konga-prepare
@@ -114,13 +109,12 @@ services:
     command: >
       -c prepare 
       -a postgres 
-      -u postgresql://${KONG_PG_USER}:${KONG_PG_PASSWORD}@${KONG_PG_HOST}:5432/${KONG_PG_DATABASE}
+      -u postgresql://${KONGA_DB_USER}:${KONGA_DB_PASSWORD}@konga-db:5432/${KONGA_DB_DATABASE}
     networks:
       - kong-net
-
     restart: on-failure
     depends_on:
-      - db
+      - konga-db
 
   konga:
     container_name: konga
@@ -128,16 +122,15 @@ services:
     restart: always
     networks:
       - kong-net
-
     environment:
-      DB_ADAPTER: ${DB_ADAPTER}
-      DB_HOST: db
-      DB_USER: ${KONG_PG_USER}
-      DB_PASSWORD: ${KONG_PG_PASSWORD}
+      DB_ADAPTER: postgres
+      DB_HOST: konga-db
+      DB_USER: ${KONGA_DB_USER}
+      DB_PASSWORD: ${KONGA_DB_PASSWORD}
       TOKEN_SECRET: ${KONGA_TOKEN_SECRET}
-      DB_DATABASE: ${KONG_PG_DATABASE}
+      DB_DATABASE: ${KONGA_DB_DATABASE}
       NODE_ENV: production
     depends_on:
-      - db
+      - konga-db
     ports:
       - "${KONGA_PORT}:1337"
